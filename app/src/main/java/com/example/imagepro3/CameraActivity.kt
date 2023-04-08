@@ -25,6 +25,8 @@ import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.*
 import org.opencv.core.Core.*
+import org.opencv.features2d.DescriptorMatcher
+import org.opencv.features2d.ORB
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.HOGDescriptor
@@ -284,9 +286,10 @@ class CameraActivity : Activity(), CvCameraViewListener2 {
         // 터치 좌표 근처의 contours
         contours = searchCountourNearTouch(contours)
 
-        // 1. 기본
         var bigContour = MatOfPoint()
         var bigArea = 0.0
+
+        // 3. HuMoments 객체 특징 비교
         // 처음 클릭시
         if (prevContour == null) {
             for (cnt in contours) {
@@ -300,62 +303,7 @@ class CameraActivity : Activity(), CvCameraViewListener2 {
                 return imgContour
             }
         }
-
-        // 1. 윤곽선 하나만 그리기 면적으로 조절.
-//        if (prevContour != null) {
-//            for (cnt in contours) {
-//                val area = Imgproc.contourArea(cnt)
-//                if (area > 500 && area > bigArea) {
-//                    bigArea = area
-//                    bigContour = cnt
-//                }
-//            }
-//        }
-//        else {
-//            for (cnt in contours) {
-//                val area = Imgproc.contourArea(cnt)
-//                if (abs(area - prevArea) < 10) {
-//                    bigArea = area
-//                    bigContour = cnt
-//                }
-//            }
-//        }
-
-
-        // ?. HOG 특징 추출 비교
-        // bigContour = contourCompareWithHOG(prevContour, contours)
-        //
-
-
-        // 2. 윤곽선 유사도 검사
-//        val copyContours = ArrayList<MatOfPoint>()
-//        copyContours.addAll(contours)
-//        contours.clear()
-//        for (cnt in copyContours) {
-//            val area = Imgproc.contourArea(cnt)
-//            if (area > 500) {
-//                contours.add(cnt)
-//            }
-//        }
-//
-//        if (prevContour != null) {
-//            var SimilarContour : MatOfPoint? = findMostSimilarContour(contours, prevContour!!)
-//            if (SimilarContour != null) {
-//                bigContour = SimilarContour
-//            }
-//        }
-//        else {
-//            for (cnt in contours) {
-//                val area = Imgproc.contourArea(cnt)
-//                if (area > 500 && area > bigArea) {
-//                    bigArea = area
-//                    bigContour = cnt
-//                }
-//            }
-//        }
-
-        // 3. HuMoments 객체 특징 비교
-        // 이후 움직일 때
+        // 처음 클릭 이후
         else {
             val grayImage = Mat()
             Imgproc.cvtColor(imgContour, grayImage, Imgproc.COLOR_BGR2GRAY)
@@ -366,9 +314,11 @@ class CameraActivity : Activity(), CvCameraViewListener2 {
 
             for (cnt in contours) {
                 val area = Imgproc.contourArea(cnt)
+                //val distant = compareOBR(prevPartMat, convertMatOfPointToMat(cnt, grayImage))
                 val distant = compareHuMoments(prevPartMat, convertMatOfPointToMat(cnt, grayImage))
                 //val distant = Double.MAX_VALUE
-                if (abs(prevArea - area) < 10 && distant < smallDistant) {
+                //println("abs(prevArea - area) : " + abs(prevArea - area))
+                if (abs(prevArea - area) < 2000 && distant < smallDistant) {
                     smallDistant = distant
                     bigContour = cnt
                 }
@@ -539,6 +489,35 @@ class CameraActivity : Activity(), CvCameraViewListener2 {
         val distance = Core.norm(moments1, moments2, Core.NORM_L2)
 
         return distance
+    }
+
+    private fun compareOBR(image1: Mat, image2: Mat): Double {
+        val orb = ORB.create()
+
+        val descriptors1 = Mat()
+        val keypoints1 = MatOfKeyPoint()
+        orb.detectAndCompute(image1, Mat(), keypoints1, descriptors1)
+
+        val descriptors2 = Mat()
+        val keypoints2 = MatOfKeyPoint()
+        orb.detectAndCompute(image2, Mat(), keypoints2, descriptors2)
+
+//        val matcher = DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING)
+//        val matches = MatOfDMatch()
+//        matcher.match(descriptors1, descriptors2, matches)
+
+        val matcher = DescriptorMatcher.create(DescriptorMatcher.FLANNBASED)
+        val matches = MatOfDMatch()
+        matcher.match(descriptors1, descriptors2, matches)
+
+        // threshold 생성
+        val matchList = matches.toList()
+        val distances = matchList.map { it.distance }
+        val sortedDistances = distances.sorted()
+        val n = 10 // 상위 n개의 값을 선택
+        val threshold = sortedDistances.take(n).average()
+
+        return threshold
     }
 
     private fun takePicture() {
